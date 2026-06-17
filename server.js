@@ -546,7 +546,10 @@ function normalizeClaudeConv(conv, includeMessages) {
     title: conv.title || "新对话",
     updatedAt: formatTime(conv.updatedAt),
     path: conv.cwd,
-    status: { type: conv.nativeId ? "idle" : "notLoaded" },
+    // A fresh Claude conv has no session yet; surface that as "ready", not the
+    // Codex-flavored "notLoaded" which reads like an error in the UI.
+    status: { type: conv.nativeId ? "idle" : "ready" },
+    lastTurn: conv.lastTurn || null,
     messages: includeMessages ? externalizeImages(structuredClone(conv.messages)) : [],
   };
 }
@@ -588,6 +591,7 @@ async function runClaudeTurn(conv, text, settings = {}) {
     }
     if (turn.sessionId) conv.nativeId = turn.sessionId;
     conv.title = conv.title === "新对话" && text ? text.slice(0, 24) : conv.title;
+    conv.lastTurn = { durationMs: turn.durationMs || null, costUsd: turn.costUsd ?? null };
     conv.updatedAt = Date.now() / 1000;
     claudeStore.save();
     const cost = turn.costUsd != null ? ` ($${turn.costUsd.toFixed(4)})` : "";

@@ -31,13 +31,13 @@ test("buildReplayPrompt caps length", () => {
   assert.ok(buildReplayPrompt(long).length <= 12000);
 });
 
-test("normalizeClaudeConv reports notLoaded before the first turn, idle after", () => {
+test("normalizeClaudeConv reports ready before the first turn, idle after", () => {
   const fresh = normalizeClaudeConv(
     { id: "claude-1", cwd: "/repo", title: "新对话", updatedAt: 0, nativeId: null, messages: [] },
     false,
   );
   assert.equal(fresh.engine, "claude");
-  assert.equal(fresh.status.type, "notLoaded");
+  assert.equal(fresh.status.type, "ready");
   assert.deepEqual(fresh.messages, []);
 
   const live = normalizeClaudeConv(

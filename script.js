@@ -199,23 +199,68 @@ function refreshModelOptions() {
   select.value = modelByEngine[engine] || "";
 }
 
-async function loadAccount() {
+// The ChatGPT-plan usage card belongs to Codex only; Claude bills against a
+// different account. So we cache the last good account payload and let
+// renderRuntime decide what (if anything) to show for the active engine.
+let lastAccount = null;
+
+async function loadAccount({ retries = 3 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      lastAccount = await apiFetch("/api/account");
+      renderUsage();
+      return;
+    } catch (error) {
+      // /api/account 500s while codex app-server is still warming up; back off.
+      if (attempt === retries) {
+        logEvent(`account.failed: ${error.message}`);
+        renderUsage();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+    }
+  }
+}
+
+// Render the usage card for the active engine: Codex shows the plan's rate
+// limits; Claude shows the last turn's duration/cost (no shared account quota).
+function renderUsage() {
   const card = document.querySelector("#usageCard");
   const body = document.querySelector("#usageBody");
-  try {
-    const data = await apiFetch("/api/account");
-    const rl = data.rateLimits || {};
-    const plan = data.account?.planType ? data.account.planType.toUpperCase() : "";
-    const rows = [];
-    rows.push(`<div class="usage-account">${escapeHtml(data.account?.email || "")} · ${escapeHtml(plan)}</div>`);
-    if (rl.primary) rows.push(usageBar("5 小时窗口", rl.primary));
-    if (rl.secondary) rows.push(usageBar("7 天窗口", rl.secondary));
-    body.innerHTML = rows.join("");
+  if (activeEngine() === "claude") {
+    const m = currentThread()?.lastTurn;
+    if (!m) {
+      card.hidden = true;
+      return;
+    }
+    const bits = [];
+    if (m.durationMs) bits.push(`耗时 ${(m.durationMs / 1000).toFixed(1)}s`);
+    if (typeof m.costUsd === "number") bits.push(`花费 $${m.costUsd.toFixed(4)}`);
+    body.innerHTML = `<div class="usage-account">Claude · 本轮</div><div class="usage-reset">${escapeHtml(bits.join(" · ") || "—")}</div>`;
     card.hidden = false;
-  } catch (error) {
-    logEvent(`account.failed: ${error.message}`);
-    card.hidden = true;
+    return;
   }
+  const data = lastAccount;
+  const rl = data?.rateLimits || {};
+  if (!data || (!rl.primary && !rl.secondary)) {
+    card.hidden = true;
+    return;
+  }
+  const plan = data.account?.planType ? data.account.planType.toUpperCase() : "";
+  const rows = [`<div class="usage-account">${escapeHtml(data.account?.email || "")} · ${escapeHtml(plan)}</div>`];
+  if (rl.primary) rows.push(usageBar(windowLabel(rl.primary), rl.primary));
+  if (rl.secondary) rows.push(usageBar(windowLabel(rl.secondary), rl.secondary));
+  body.innerHTML = rows.join("");
+  card.hidden = false;
+}
+
+// Label a rate-limit window from its real duration instead of hardcoding.
+function windowLabel(window) {
+  const mins = window.windowDurationMins || 0;
+  if (mins >= 1440) return `${Math.round(mins / 1440)} 天窗口`;
+  if (mins >= 60) return `${Math.round(mins / 60)} 小时窗口`;
+  if (mins > 0) return `${mins} 分钟窗口`;
+  return "用量";
 }
 
 function usageBar(label, window) {
@@ -696,11 +741,17 @@ threadSearch.addEventListener("input", () => {
 
 // Cross-thread search across all projects via the app-server.
 async function crossThreadSearch(term) {
+  // Local Claude conversations aren't in Codex's thread/search index, so match
+  // them client-side and merge so they don't vanish from the list when searching.
+  const lower = term.toLowerCase();
+  const claudeHits = state.threads.filter(
+    (t) => t.engine === "claude" && (t.title || "").toLowerCase().includes(lower),
+  );
   try {
     const { threads } = await apiFetch(`/api/search?q=${encodeURIComponent(term)}`);
-    ui.searchResults = threads;
+    ui.searchResults = [...claudeHits, ...threads];
   } catch (error) {
-    ui.searchResults = null;
+    ui.searchResults = claudeHits;
     logEvent(`search.failed: ${error.message}`);
   }
   renderThreads();
@@ -1322,17 +1373,25 @@ function summarizeEvent(event) {
 function renderRuntime() {
   const project = currentProject();
   const thread = currentThread();
+  const engine = activeEngine();
   sidebarSummary.textContent = `${state.projects.length} 个项目 · ${state.threads.length} 个线程`;
-  dataSource.textContent = ui.dataSource;
+  // "来源" reflects the active engine, not the raw sync payload string.
+  dataSource.textContent = engine === "claude" ? "Claude" : ui.dataSource === "Mock" ? "Mock" : "Codex";
   currentThreadId.textContent = thread ? compactId(thread.id) : "未选择";
   threadStatus.textContent = statusText(thread?.status);
   messageCount.textContent = String(thread?.messages.length || 0);
   currentProjectPath.title = project?.path || "";
-  // Swap the model dropdown when the active conversation's engine changes.
-  if (ui.lastEngine !== activeEngine()) {
-    ui.lastEngine = activeEngine();
+  // Run settings other than the model are Codex-only; disable them on Claude.
+  const codexOnlySettings = engine !== "claude";
+  for (const key of ["effort", "approvalPolicy", "sandbox"]) {
+    settingsControls[key].disabled = !codexOnlySettings;
+  }
+  // Swap the model dropdown + usage panel when the active engine changes.
+  if (ui.lastEngine !== engine) {
+    ui.lastEngine = engine;
     refreshModelOptions();
   }
+  renderUsage();
 }
 
 async function addThread() {
@@ -1368,7 +1427,11 @@ async function sendPrompt(event) {
   const engineName = thread.engine === "claude" ? "Claude" : "Codex";
   const pendingMessage = { role: "agent", text: `${engineName} 正在处理...` };
   thread.messages.push(pendingMessage);
-  thread.title = thread.title === "新对话" && text ? text.slice(0, 24) : thread.title;
+  // Auto-title a still-unnamed conversation from its first prompt. Codex hands
+  // back "未命名对话" and Claude "新对话", so treat both placeholders as unnamed.
+  if (text && (!thread.title || ["新对话", "未命名对话"].includes(thread.title))) {
+    thread.title = text.slice(0, 24);
+  }
   thread.updatedAt = "刚刚";
   promptInput.value = "";
   promptInput.style.height = "";
@@ -1416,6 +1479,8 @@ async function sendPrompt(event) {
     logEvent(response.partial ? `turn.reply.partial: ${thread.id}` : `turn.completed: ${thread.id}`);
     speakReply(streamed || response.reply);
     if (response.partial) scheduleThreadRefresh(nextThread.id);
+    // Refresh the Codex rate-limit usage after a turn (the % moves).
+    if (nextThread.engine !== "claude") loadAccount({ retries: 0 });
   } catch (error) {
     pendingMessage.text = formatSendError(error.message);
     logEvent(`turn.failed: ${error.message}`);
@@ -1829,6 +1894,7 @@ function statusText(status) {
   if (!status?.type) return "未加载";
   if (status.type === "active") return "运行中";
   if (status.type === "idle") return "空闲";
+  if (status.type === "ready") return "就绪";
   if (status.type === "notLoaded") return "未加载";
   if (status.type === "systemError") return "异常";
   return status.type;
