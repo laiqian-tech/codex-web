@@ -28,7 +28,14 @@ test("buildReplayPrompt flattens user/agent turns into seed context", () => {
 
 test("buildReplayPrompt caps length", () => {
   const long = [{ role: "user", text: "x".repeat(50000) }];
-  assert.ok(buildReplayPrompt(long).length <= 12000);
+  assert.ok(buildReplayPrompt(long).length <= 6000);
+});
+
+test("buildReplayPrompt keeps only the most recent turns", () => {
+  const many = Array.from({ length: 30 }, (_, i) => ({ role: "user", text: `msg${i}` }));
+  const prompt = buildReplayPrompt(many);
+  assert.ok(!prompt.includes("msg0\n") && !prompt.includes("msg5"), "drops old turns");
+  assert.match(prompt, /msg29/); // keeps the latest
 });
 
 test("normalizeClaudeConv reports ready before the first turn, idle after", () => {

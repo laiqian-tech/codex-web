@@ -1,5 +1,7 @@
-// Minimal offline shell cache for the Codex Web client.
-const CACHE = "codex-web-v3";
+// Offline shell cache for the Codex Web client.
+// Network-first for the app shell so a redeploy's new JS/CSS is picked up
+// immediately; the cache is only a fallback for offline / failed fetches.
+const CACHE = "codex-web-v4";
 const SHELL = ["/", "/index.html", "/styles.css", "/script.js", "/markdown.js", "/icon.svg", "/icon-192.png", "/icon-512.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -16,7 +18,17 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   // Never cache API calls; always go to network.
   if (url.pathname.startsWith("/api/") || event.request.method !== "GET") return;
+  // Network-first: serve the freshest asset when online, refresh the cache,
+  // and fall back to the cached copy (or the app shell) when offline.
   event.respondWith(
-    caches.match(event.request).then((hit) => hit || fetch(event.request).catch(() => caches.match("/index.html"))),
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && url.origin === self.location.origin) {
+          const copy = response.clone();
+          caches.open(CACHE).then((c) => c.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request).then((hit) => hit || caches.match("/index.html"))),
   );
 });

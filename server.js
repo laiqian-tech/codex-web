@@ -579,14 +579,15 @@ async function runClaudeTurn(conv, text, settings = {}) {
       onEvent,
     );
     for (const item of turn.items) conv.messages.push(item);
-    if (turn.reply) {
+    const replyText = turn.stopped ? turn.reply || "（已停止）" : turn.reply;
+    if (replyText) {
       // durationMs/turnStatus drive the "Claude · 12.3s" header, matching Codex.
       conv.messages.push({
         role: "agent",
-        text: turn.reply,
+        text: replyText,
         images: [],
         durationMs: turn.durationMs || null,
-        turnStatus: "completed",
+        turnStatus: turn.stopped ? "stopped" : "completed",
       });
     }
     if (turn.sessionId) conv.nativeId = turn.sessionId;
@@ -617,13 +618,15 @@ function claudeModel(model) {
 // Flatten a conversation's transcript into a seed prompt so a switched-to engine
 // starts with the prior context (text only; tool calls/diffs don't transfer).
 function buildReplayPrompt(messages = []) {
+  // Only the most recent text turns — older context rarely matters for a
+  // hand-off and a giant blob is unwieldy in the composer on a phone.
+  const recent = messages.filter((m) => (m.role === "user" || m.role === "agent") && m.text).slice(-12);
   const lines = ["以下是此前对话的记录，请在此基础上继续：\n"];
-  for (const m of messages) {
-    if (m.role === "user" && m.text) lines.push(`【我】${m.text}`);
-    else if (m.role === "agent" && m.text) lines.push(`【助手】${m.text}`);
+  for (const m of recent) {
+    lines.push(`${m.role === "user" ? "【我】" : "【助手】"}${m.text}`);
   }
   lines.push("\n（以上为历史上下文，下面请继续。）");
-  return lines.join("\n").slice(0, 12000);
+  return lines.join("\n").slice(0, 6000);
 }
 
 const server = http.createServer(async (req, res) => {

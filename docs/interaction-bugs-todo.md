@@ -29,3 +29,22 @@
 
 ### 验证
 - [x] 10. 回归 ✅ `npm test` 77/77、`npm run check`、`npm run test:mobile` 全过；浏览器复测两引擎运行面板正确联动，零 JS 错误。
+
+---
+
+## 第二轮审计（深层边角）
+
+> 方法：通读未细查的流程（停止/中断、SSE、PWA、附件、切换引擎）+ 代码路径核对。
+
+### P0 · 部署/缓存
+- [x] R1. **PWA 缓存陈旧** ✅ `sw.js` 改 network-first（在线取最新并回填缓存、离线回退），CACHE 升 v4 → 发布后不再拿旧 JS/CSS。
+
+### P1 · 停止/附件一致性
+- [x] R2. **停止 Claude 优雅化** ✅ engine 记中断标记，close 时优雅 resolve（不 reject）；实测停止显示"（已停止）"，showsError=false。
+- [x] R3. **Claude 图片附件防御** ✅ Claude 对话隐藏 📎（实测 display:none，切回 Codex 恢复）；sendPrompt 对 Claude 丢弃 images 避免空 prompt。
+
+### P2 · 细节
+- [x] R4. **切换引擎上下文收敛** ✅ 仅取最近 12 轮、上限 6000 字（单测覆盖：丢旧留新）。
+
+### 验证
+- [x] R5. 回归 ✅ `npm test` 78/78、`npm run check`、`npm run test:mobile` 全过；浏览器复测停止/附件均符合预期，零 JS 错误。

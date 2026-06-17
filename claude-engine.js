@@ -151,6 +151,9 @@ class ClaudeEngine {
   constructor() {
     // Active turns by conversation id -> child process (for interrupt).
     this.active = new Map();
+    // Conversations the user explicitly stopped, so the SIGTERM exit reads as
+    // an intentional stop rather than a failure.
+    this.interrupted = new Set();
   }
 
   // Run one turn. `onEvent(evt)` receives SSE-shaped events:
@@ -232,6 +235,20 @@ class ClaudeEngine {
       proc.on("close", (code) => {
         this.active.delete(convId);
         onEvent({ type: "turnCompleted" });
+        const stopped = this.interrupted.delete(convId);
+        // An intentional stop (SIGTERM) is not a failure: return whatever
+        // streamed so far, flagged as stopped, instead of rejecting.
+        if (stopped) {
+          resolve({
+            reply: (reply || streamed).trim(),
+            sessionId: capturedSession,
+            items: items.map(stripInternal),
+            durationMs,
+            costUsd,
+            stopped: true,
+          });
+          return;
+        }
         if (code !== 0 && !reply) {
           reject(new Error(claudeError(code, stderr)));
           return;
@@ -250,6 +267,7 @@ class ClaudeEngine {
   interrupt(convId) {
     const proc = this.active.get(convId);
     if (!proc) return false;
+    this.interrupted.add(convId);
     proc.kill("SIGTERM");
     this.active.delete(convId);
     return true;

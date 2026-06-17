@@ -1386,6 +1386,9 @@ function renderRuntime() {
   for (const key of ["effort", "approvalPolicy", "sandbox"]) {
     settingsControls[key].disabled = !codexOnlySettings;
   }
+  // Claude headless turns don't accept inline images yet — hide the attach chip.
+  const attachBtn = document.querySelector("#attachBtn");
+  if (attachBtn) attachBtn.style.display = engine === "claude" ? "none" : "";
   // Swap the model dropdown + usage panel when the active engine changes.
   if (ui.lastEngine !== engine) {
     ui.lastEngine = engine;
@@ -1420,7 +1423,9 @@ async function sendPrompt(event) {
   event.preventDefault();
   const thread = currentThread();
   const text = promptInput.value.trim();
-  const images = pendingImages.slice();
+  // Claude headless turns don't accept inline images; drop them so we never
+  // send an empty prompt or silently lose them.
+  const images = thread?.engine === "claude" ? [] : pendingImages.slice();
   if (!thread || (!text && !images.length)) return;
 
   thread.messages.push({ role: "user", text, images });
