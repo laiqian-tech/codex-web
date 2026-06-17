@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm run check
+      - run: npm test
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm i -D playwright@^1
+      - run: npx playwright install --with-deps chromium
+      - name: Start server and run mobile viewport checks
+        run: |
+          node server.js &
+          npx wait-on http://127.0.0.1:5173/health || sleep 5
+          BASE_URL=http://127.0.0.1:5173 node scripts/mobile-check.mjs

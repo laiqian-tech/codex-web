@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Codex Mobile Web Demo</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#16806f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="项目和对话">
+        <div class="brand">
+          <div class="window-dots" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="brand-mark">C</div>
+          <div>
+            <h1>Codex Web</h1>
+            <p id="sidebarSummary">连接本机 Codex</p>
+          </div>
+        </div>
+
+        <section class="rail-section compact">
+          <div class="section-title">
+            <span>项目</span>
+            <button id="syncBtn" class="icon-button" title="同步" aria-label="同步">↻</button>
+          </div>
+          <input id="projectSearch" class="search-input" placeholder="搜索项目" />
+          <div id="projectList" class="list"></div>
+        </section>
+
+        <section class="rail-section grow">
+          <div class="section-title">
+            <span>对话</span>
+            <div class="section-actions">
+              <button id="reloadThreadBtn" class="icon-button" title="重载当前对话" aria-label="重载当前对话">⟳</button>
+              <button id="newThreadBtn" class="icon-button" title="新对话" aria-label="新对话">+</button>
+            </div>
+          </div>
+          <input id="threadSearch" class="search-input" placeholder="搜索对话" />
+          <div id="threadList" class="list"></div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <button id="drawerBtn" class="drawer-button" type="button" title="项目与对话" aria-label="打开项目与对话">☰</button>
+          <div>
+            <p id="currentProjectPath" class="eyebrow"></p>
+            <h2 id="threadTitle">选择一个对话</h2>
+            <div id="threadMeta" class="thread-meta"></div>
+          </div>
+          <div class="topbar-actions">
+            <button id="renameThreadBtn" class="toolbar-button" type="button" title="重命名对话" aria-label="重命名对话">✎</button>
+            <button id="compactThreadBtn" class="toolbar-button" type="button" title="压缩上下文" aria-label="压缩上下文">⤡</button>
+            <button id="archiveThreadBtn" class="toolbar-button" type="button" title="归档对话" aria-label="归档对话">🗄</button>
+            <div class="more-wrap">
+              <button id="moreBtn" class="toolbar-button" type="button" title="更多" aria-label="更多">⋯</button>
+              <div id="moreMenu" class="more-menu" hidden>
+                <button type="button" class="mobile-only" data-action="rename">重命名对话</button>
+                <button type="button" class="mobile-only codex-only" data-action="compact">压缩上下文</button>
+                <button type="button" class="mobile-only" data-action="archive">归档对话</button>
+                <button type="button" class="mobile-only" data-action="theme">切换主题</button>
+                <button type="button" id="switchEngineBtn" data-action="switch">切换引擎</button>
+                <button type="button" class="codex-only" data-action="fork">复刻对话 (Fork)</button>
+                <button type="button" class="codex-only" data-action="rollback">回滚一轮</button>
+                <button type="button" class="codex-only" data-action="review">Review 当前改动</button>
+                <button type="button" class="codex-only" data-action="summary">查看会话摘要</button>
+                <button type="button" class="codex-only" data-action="gitdiff">查看 Git Diff</button>
+                <button type="button" class="codex-only" data-action="skills">查看可用技能</button>
+                <button type="button" class="codex-only" data-action="mcp">查看 MCP 服务器</button>
+                <button type="button" class="codex-only" data-action="plugins">查看插件</button>
+              </div>
+            </div>
+            <button id="themeBtn" class="toolbar-button" type="button" title="切换主题" aria-label="切换主题">🌙</button>
+            <button id="viewInspectorBtn" class="toolbar-button" type="button" title="运行/事件面板" aria-label="运行与事件面板">☷</button>
+            <button id="viewChatBtn" class="toolbar-button" type="button" title="工作区" aria-label="工作区">▣</button>
+            <div class="status-pill" id="connectionStatus">Mock 模式</div>
+          </div>
+        </header>
+
+        <section id="messageList" class="messages" aria-live="polite"></section>
+
+        <form id="composer" class="composer">
+          <div class="prompt-toolbar" aria-label="常用提示词">
+            <button type="button" class="prompt-chip" data-prompt="总结这个项目当前状态和风险点">项目状态</button>
+            <button type="button" class="prompt-chip" data-prompt="阅读当前线程上下文，给我下一步最小可执行建议">下一步</button>
+            <button type="button" class="prompt-chip" data-prompt="只 review 当前改动，按严重程度列出问题">Review</button>
+            <button type="button" id="attachBtn" class="prompt-chip" title="添加图片">📎 图片</button>
+            <button type="button" id="micBtn" class="prompt-chip" title="语音输入">🎤 语音</button>
+            <button type="button" id="ttsBtn" class="prompt-chip" title="朗读 Codex 回复" aria-pressed="false">🔈 朗读</button>
+            <button type="button" id="steerBtn" class="prompt-chip" title="任务进行中追加引导" hidden>↪ 引导</button>
+            <input id="attachInput" type="file" accept="image/*" multiple hidden />
+          </div>
+          <div id="attachPreview" class="attach-preview"></div>
+          <div id="mentionPopup" class="mention-popup" hidden></div>
+          <div class="composer-row">
+            <textarea
+              id="promptInput"
+              rows="2"
+              enterkeyhint="send"
+              placeholder="给 Codex 一个任务，按 Ctrl/Cmd + Enter 发送"
+            ></textarea>
+            <button type="submit">发送</button>
+            <button type="button" id="stopBtn" class="stop-button" hidden>停止</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="inspector" aria-label="运行状态">
+        <section class="runtime-card">
+          <div class="section-title">
+            <span>运行</span>
+          </div>
+          <div class="runtime-grid">
+            <div>
+              <span class="metric-label">来源</span>
+              <strong id="dataSource">Mock</strong>
+            </div>
+            <div>
+              <span class="metric-label">线程</span>
+              <strong id="currentThreadId">未选择</strong>
+            </div>
+            <div>
+              <span class="metric-label">状态</span>
+              <strong id="threadStatus">空闲</strong>
+            </div>
+            <div>
+              <span class="metric-label">消息</span>
+              <strong id="messageCount">0</strong>
+            </div>
+          </div>
+          <label class="field">
+            <span>后端地址</span>
+            <input id="backendUrl" placeholder="默认：本页地址" />
+          </label>
+          <button id="connectBtn" class="secondary-button">检查连接</button>
+        </section>
+
+        <section class="runtime-card">
+          <div class="section-title"><span>运行设置</span></div>
+          <label class="field">
+            <span>模型</span>
+            <select id="setModel"><option value="">默认</option></select>
+          </label>
+          <label class="field">
+            <span>推理强度</span>
+            <select id="setEffort">
+              <option value="">默认</option>
+              <option value="minimal">minimal</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>审批策略</span>
+            <select id="setApproval">
+              <option value="on-request">on-request（默认）</option>
+              <option value="on-failure">on-failure</option>
+              <option value="untrusted">untrusted</option>
+              <option value="never">never</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>沙箱</span>
+            <select id="setSandbox">
+              <option value="workspace-write">workspace-write（默认）</option>
+              <option value="read-only">read-only</option>
+              <option value="danger-full-access">danger-full-access</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="runtime-card" id="usageCard" hidden>
+          <div class="section-title"><span>用量</span></div>
+          <div id="usageBody" class="usage-body"></div>
+        </section>
+
+        <section class="runtime-card grow">
+          <div class="section-title">
+            <span>事件流</span>
+            <div class="section-actions">
+              <button id="refreshEventsBtn" class="icon-button" title="刷新事件" aria-label="刷新事件">↻</button>
+              <button id="clearEventsBtn" class="icon-button" title="清空事件" aria-label="清空事件">×</button>
+            </div>
+          </div>
+          <div id="eventList" class="events"></div>
+        </section>
+      </aside>
+    </main>
+
+    <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
+
+    <div id="sheet" class="sheet" hidden>
+      <div class="sheet-card">
+        <div id="sheetTitle" class="sheet-title"></div>
+        <div id="sheetActions" class="sheet-actions"></div>
+        <button type="button" id="sheetCancel" class="sheet-cancel">取消</button>
+      </div>
+    </div>
+
+    <div id="approvalLayer" class="approval-layer" hidden></div>
+
+    <div id="infoModal" class="info-modal" hidden>
+      <div class="info-card">
+        <div class="info-head">
+          <strong id="infoTitle"></strong>
+          <button id="infoClose" type="button" aria-label="关闭">×</button>
+        </div>
+        <div id="infoBody" class="info-body"></div>
+      </div>
+    </div>
+
+    <div id="imageViewer" class="image-viewer" hidden>
+      <button id="imageViewerClose" class="image-viewer-close" aria-label="关闭">×</button>
+      <img id="imageViewerImg" alt="预览大图" />
+    </div>
+
+    <script src="./markdown.js"></script>
+    <script src="./script.js"></script>
+  </body>
+</html>
