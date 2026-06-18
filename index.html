@@ -69,7 +69,6 @@
                 <button type="button" class="mobile-only codex-only" data-action="compact">压缩上下文</button>
                 <button type="button" class="mobile-only" data-action="archive">归档对话</button>
                 <button type="button" class="mobile-only" data-action="theme">切换主题</button>
-                <button type="button" id="switchEngineBtn" data-action="switch">切换引擎</button>
                 <button type="button" class="codex-only" data-action="fork">复刻对话 (Fork)</button>
                 <button type="button" class="codex-only" data-action="rollback">回滚一轮</button>
                 <button type="button" class="codex-only" data-action="review">Review 当前改动</button>
@@ -90,6 +89,10 @@
         <section id="messageList" class="messages" aria-live="polite"></section>
 
         <form id="composer" class="composer">
+          <div class="engine-switch" role="group" aria-label="选择引擎">
+            <button type="button" class="engine-opt" data-engine="codex">Codex</button>
+            <button type="button" class="engine-opt" data-engine="claude">Claude</button>
+          </div>
           <div class="prompt-toolbar" aria-label="常用提示词">
             <button type="button" class="prompt-chip" data-prompt="总结这个项目当前状态和风险点">项目状态</button>
             <button type="button" class="prompt-chip" data-prompt="阅读当前线程上下文，给我下一步最小可执行建议">下一步</button>

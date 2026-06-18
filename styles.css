@@ -968,6 +968,38 @@ button {
   background: var(--rail);
 }
 
+/* Engine segmented toggle above the composer: tap the other engine to switch. */
+.engine-switch {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.engine-opt {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 5px 16px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.engine-opt.active[data-engine="codex"] {
+  background: var(--text);
+  color: var(--surface);
+}
+
+.engine-opt.active[data-engine="claude"] {
+  background: #d97757;
+  color: #fff;
+}
+
 .prompt-toolbar {
   display: flex;
   gap: 8px;

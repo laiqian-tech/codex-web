@@ -540,15 +540,12 @@ document.querySelector("#moreBtn").addEventListener("click", (e) => {
 });
 
 // Tailor the menu to the current conversation's engine: hide Codex-only ops on
-// Claude threads and label the engine-switch target.
+// Claude threads (engine switching lives in the composer toggle now).
 function syncMoreMenu() {
-  const engine = currentThread()?.engine || "codex";
-  const isClaude = engine === "claude";
+  const isClaude = (currentThread()?.engine || "codex") === "claude";
   moreMenu.querySelectorAll(".codex-only").forEach((b) => {
     b.style.display = isClaude ? "none" : "";
   });
-  const sw = document.querySelector("#switchEngineBtn");
-  if (sw) sw.textContent = isClaude ? "切换到 Codex" : "切换到 Claude";
 }
 document.addEventListener("click", () => (moreMenu.hidden = true));
 moreMenu.addEventListener("click", (e) => e.stopPropagation());
@@ -618,23 +615,6 @@ async function runThreadAction(action) {
     } else if (action === "theme") {
       const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
       applyTheme(next);
-    } else if (action === "switch") {
-      if (!thread) return;
-      const to = thread.engine === "claude" ? "codex" : "claude";
-      const { thread: newThread, seedPrompt } = await apiFetch(
-        `/api/threads/${encodeURIComponent(thread.id)}/switch-engine`,
-        { method: "POST", body: JSON.stringify({ to, cwd, settings: currentSettings() }) },
-      );
-      state.threads.unshift(newThread);
-      state.selectedThreadId = newThread.id;
-      logEvent(`engine.switched: → ${to}`);
-      render();
-      // Seed the composer with the prior context so the first turn carries it.
-      if (seedPrompt) {
-        promptInput.value = seedPrompt;
-        promptInput.dispatchEvent(new Event("input"));
-      }
-      showInfo("已切换引擎", `<div class="info-item"><strong>已新建 ${to === "claude" ? "Claude" : "Codex"} 对话</strong><p>此前对话记录已填入输入框作为上下文，按需编辑后发送即可继续。</p></div>`);
     } else if (action === "fork") {
       if (!thread) return;
       const { thread: forked } = await apiFetch(`/api/threads/${encodeURIComponent(thread.id)}/fork`, {
@@ -984,6 +964,7 @@ function render() {
   renderMessages();
   renderEvents();
   renderRuntime();
+  renderEngineSwitch();
   persist();
 }
 
@@ -1403,6 +1384,56 @@ async function addThread() {
   const engine = await chooseEngine();
   if (!engine) return;
   createBackendThread(project, engine);
+}
+
+// Engine segmented toggle above the composer. Delegate clicks so wiring works
+// regardless of where this runs relative to the initial render().
+document.querySelector(".engine-switch")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".engine-opt");
+  if (btn) switchEngineTo(btn.dataset.engine);
+});
+
+function renderEngineSwitch() {
+  const el = document.querySelector(".engine-switch");
+  if (!el) return;
+  const engine = currentThread()?.engine || "codex";
+  el.querySelectorAll(".engine-opt").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.engine === engine);
+  });
+}
+
+// Switch the working engine. With an in-progress conversation this forks to a
+// new conversation on the target engine, seeding the recent transcript; with no
+// (or an empty) conversation it just starts a fresh one on that engine.
+async function switchEngineTo(to) {
+  const thread = currentThread();
+  const project = currentProject();
+  if (thread && thread.engine === to) return; // already on it
+  if (!thread || !thread.messages.length) {
+    if (project) createBackendThread(project, to);
+    return;
+  }
+  try {
+    const { thread: newThread, seedPrompt } = await apiFetch(
+      `/api/threads/${encodeURIComponent(thread.id)}/switch-engine`,
+      { method: "POST", body: JSON.stringify({ to, cwd: project?.path, settings: currentSettings() }) },
+    );
+    state.threads.unshift(newThread);
+    state.selectedThreadId = newThread.id;
+    logEvent(`engine.switched: → ${to}`);
+    render();
+    // Seed the composer with the prior context so the first turn carries it.
+    if (seedPrompt) {
+      promptInput.value = seedPrompt;
+      promptInput.dispatchEvent(new Event("input"));
+    }
+    showInfo(
+      "已切换引擎",
+      `<div class="info-item"><strong>已新建 ${to === "claude" ? "Claude" : "Codex"} 对话</strong><p>此前对话记录已填入输入框作为上下文，按需编辑后发送即可继续。</p></div>`,
+    );
+  } catch (error) {
+    showInfo("切换失败", `<div class="info-empty">${escapeHtml(error.message)}</div>`);
+  }
 }
 
 // Bottom-sheet engine picker for a new conversation.
