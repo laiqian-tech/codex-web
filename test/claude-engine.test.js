@@ -86,7 +86,14 @@ test("result error yields an error", () => {
   assert.deepEqual(out, [{ type: "error", message: "boom" }]);
 });
 
-test("rate_limit_event and unknown events are ignored", () => {
+test("rate_limit_event with info surfaces the rolling window", () => {
+  const info = { status: "allowed", resetsAt: 1781768400, rateLimitType: "five_hour" };
+  assert.deepEqual(normalizeClaudeEvent({ type: "rate_limit_event", rate_limit_info: info }), [
+    { type: "rateLimit", info },
+  ]);
+});
+
+test("rate_limit_event without info and unknown events are ignored", () => {
   assert.deepEqual(normalizeClaudeEvent({ type: "rate_limit_event" }), []);
   assert.deepEqual(normalizeClaudeEvent({ type: "whatever" }), []);
   assert.deepEqual(normalizeClaudeEvent(null), []);

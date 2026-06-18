@@ -228,15 +228,24 @@ function renderUsage() {
   const card = document.querySelector("#usageCard");
   const body = document.querySelector("#usageBody");
   if (activeEngine() === "claude") {
-    const m = currentThread()?.lastTurn;
-    if (!m) {
+    const thread = currentThread();
+    const m = thread?.lastTurn;
+    const rateLimit = thread?.rateLimit;
+    if (!m && !rateLimit) {
       card.hidden = true;
       return;
     }
-    const bits = [];
-    if (m.durationMs) bits.push(`耗时 ${(m.durationMs / 1000).toFixed(1)}s`);
-    if (typeof m.costUsd === "number") bits.push(`花费 $${m.costUsd.toFixed(4)}`);
-    body.innerHTML = `<div class="usage-account">Claude · 本轮</div><div class="usage-reset">${escapeHtml(bits.join(" · ") || "—")}</div>`;
+    const rows = [`<div class="usage-account">Claude</div>`];
+    // Claude headless exposes the 5-hour window's reset + status (no percentage
+    // and no weekly window), so show that instead of a Codex-style % bar.
+    if (rateLimit) rows.push(claudeRateLimitRow(rateLimit));
+    if (m) {
+      const bits = [];
+      if (m.durationMs) bits.push(`耗时 ${(m.durationMs / 1000).toFixed(1)}s`);
+      if (typeof m.costUsd === "number") bits.push(`花费 $${m.costUsd.toFixed(4)}`);
+      if (bits.length) rows.push(`<div class="usage-row"><div class="usage-label"><span>本轮</span></div><div class="usage-reset">${escapeHtml(bits.join(" · "))}</div></div>`);
+    }
+    body.innerHTML = rows.join("");
     card.hidden = false;
     return;
   }
@@ -252,6 +261,23 @@ function renderUsage() {
   if (rl.secondary) rows.push(usageBar(windowLabel(rl.secondary), rl.secondary));
   body.innerHTML = rows.join("");
   card.hidden = false;
+}
+
+// Claude's rate_limit_info → a status line. It carries the window type +
+// reset time + allowed/limited status, but no used-percentage, so there's no
+// progress bar to draw (unlike Codex).
+function claudeRateLimitRow(info) {
+  const labels = { five_hour: "5 小时窗口", seven_day: "7 天窗口", weekly: "7 天窗口" };
+  const label = labels[info.rateLimitType] || "用量窗口";
+  const limited = info.status && info.status !== "allowed";
+  const state = limited ? "已受限" : "正常";
+  const resets = info.resetsAt
+    ? `重置于 ${new Date(info.resetsAt * 1000).toLocaleString("zh-CN", { hour12: false })}`
+    : "";
+  return `<div class="usage-row">
+    <div class="usage-label"><span>${label}</span><span>${state}</span></div>
+    ${resets ? `<div class="usage-reset">${escapeHtml(resets)}</div>` : ""}
+  </div>`;
 }
 
 // Label a rate-limit window from its real duration instead of hardcoding.

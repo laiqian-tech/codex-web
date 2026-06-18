@@ -102,6 +102,13 @@ function normalizeClaudeEvent(event) {
     return out;
   }
 
+  // Rolling usage window (Claude headless emits the 5-hour window: reset time
+  // + allowed/limited status, but no used-percentage and no weekly window).
+  if (event.type === "rate_limit_event" && event.rate_limit_info) {
+    out.push({ type: "rateLimit", info: event.rate_limit_info });
+    return out;
+  }
+
   if (event.type === "result") {
     if (event.is_error) {
       out.push({ type: "error", message: event.result || event.subtype || "Claude turn failed" });
@@ -177,6 +184,7 @@ class ClaudeEngine {
       let stderr = "";
       let durationMs = null;
       let costUsd = null;
+      let rateLimit = null;
       const items = []; // normalized transcript items emitted this turn
       const toolItemsById = new Map();
 
@@ -212,6 +220,8 @@ class ClaudeEngine {
                 target.title = target.title || o.output.slice(0, 160);
               }
             }
+          } else if (o.type === "rateLimit") {
+            rateLimit = o.info;
           } else if (o.type === "result") {
             reply = o.text || streamed;
             durationMs = o.durationMs;
@@ -245,6 +255,7 @@ class ClaudeEngine {
             items: items.map(stripInternal),
             durationMs,
             costUsd,
+            rateLimit,
             stopped: true,
           });
           return;
@@ -259,6 +270,7 @@ class ClaudeEngine {
           items: items.map(stripInternal),
           durationMs,
           costUsd,
+          rateLimit,
         });
       });
     });
