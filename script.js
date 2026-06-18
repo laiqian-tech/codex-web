@@ -375,7 +375,6 @@ function syncBackdrop() {
 }
 document.querySelector("#drawerBtn").addEventListener("click", () => setDrawer(true));
 document.querySelector("#viewInspectorBtn").addEventListener("click", () => setInspector(true));
-document.querySelector("#viewChatBtn").addEventListener("click", () => setInspector(false));
 drawerBackdrop.addEventListener("click", () => {
   setDrawer(false);
   setInspector(false);
@@ -1382,9 +1381,11 @@ function renderRuntime() {
   const thread = currentThread();
   const engine = activeEngine();
   sidebarSummary.textContent = `${state.projects.length} 个项目 · ${state.threads.length} 个线程`;
-  // "来源" reflects the active engine, not the raw sync payload string.
-  dataSource.textContent = engine === "claude" ? "Claude" : ui.dataSource === "Mock" ? "Mock" : "Codex";
-  currentThreadId.textContent = thread ? compactId(thread.id) : "未选择";
+  // "连接" is plain connection state; the engine gets its own cell instead of a
+  // raw thread UUID nobody reads (the full id stays available on hover).
+  dataSource.textContent = ui.dataSource === "Mock" ? "Mock" : "已连接";
+  currentThreadId.textContent = thread ? (engine === "claude" ? "Claude" : "Codex") : "未选择";
+  currentThreadId.title = thread ? thread.id : "";
   threadStatus.textContent = statusText(thread?.status);
   messageCount.textContent = String(thread?.messages.length || 0);
   currentProjectPath.title = project?.path || "";

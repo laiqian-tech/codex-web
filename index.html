@@ -16,11 +16,6 @@
     <main class="app-shell">
       <aside class="sidebar" aria-label="项目和对话">
         <div class="brand">
-          <div class="window-dots" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
           <div class="brand-mark">C</div>
           <div>
             <h1>Codex Web</h1>
@@ -65,9 +60,9 @@
             <div class="more-wrap">
               <button id="moreBtn" class="toolbar-button" type="button" title="更多" aria-label="更多">⋯</button>
               <div id="moreMenu" class="more-menu" hidden>
-                <button type="button" class="mobile-only" data-action="rename">重命名对话</button>
-                <button type="button" class="mobile-only codex-only" data-action="compact">压缩上下文</button>
-                <button type="button" class="mobile-only" data-action="archive">归档对话</button>
+                <button type="button" data-action="rename">重命名对话</button>
+                <button type="button" class="codex-only" data-action="compact">压缩上下文</button>
+                <button type="button" data-action="archive">归档对话</button>
                 <button type="button" class="mobile-only" data-action="theme">切换主题</button>
                 <button type="button" class="codex-only" data-action="fork">复刻对话 (Fork)</button>
                 <button type="button" class="codex-only" data-action="rollback">回滚一轮</button>
@@ -80,8 +75,7 @@
               </div>
             </div>
             <button id="themeBtn" class="toolbar-button" type="button" title="切换主题" aria-label="切换主题">🌙</button>
-            <button id="viewInspectorBtn" class="toolbar-button" type="button" title="运行/事件面板" aria-label="运行与事件面板">☷</button>
-            <button id="viewChatBtn" class="toolbar-button" type="button" title="工作区" aria-label="工作区">▣</button>
+            <button id="viewInspectorBtn" class="toolbar-button" type="button" title="运行与设置面板" aria-label="运行与设置面板">⚙</button>
             <div class="status-pill" id="connectionStatus">Mock 模式</div>
           </div>
         </header>
@@ -93,14 +87,15 @@
             <button type="button" class="engine-opt" data-engine="codex">Codex</button>
             <button type="button" class="engine-opt" data-engine="claude">Claude</button>
           </div>
-          <div class="prompt-toolbar" aria-label="常用提示词">
+          <div class="prompt-toolbar" aria-label="常用提示词与工具">
             <button type="button" class="prompt-chip" data-prompt="总结这个项目当前状态和风险点">项目状态</button>
             <button type="button" class="prompt-chip" data-prompt="阅读当前线程上下文，给我下一步最小可执行建议">下一步</button>
             <button type="button" class="prompt-chip" data-prompt="只 review 当前改动，按严重程度列出问题">Review</button>
-            <button type="button" id="attachBtn" class="prompt-chip" title="添加图片">📎 图片</button>
-            <button type="button" id="micBtn" class="prompt-chip" title="语音输入">🎤 语音</button>
-            <button type="button" id="ttsBtn" class="prompt-chip" title="朗读 Codex 回复" aria-pressed="false">🔈 朗读</button>
-            <button type="button" id="steerBtn" class="prompt-chip" title="任务进行中追加引导" hidden>↪ 引导</button>
+            <span class="chip-sep" aria-hidden="true"></span>
+            <button type="button" id="attachBtn" class="prompt-chip tool" title="添加图片">📎 图片</button>
+            <button type="button" id="micBtn" class="prompt-chip tool" title="语音输入">🎤 语音</button>
+            <button type="button" id="ttsBtn" class="prompt-chip tool" title="朗读 Codex 回复" aria-pressed="false">🔈 朗读</button>
+            <button type="button" id="steerBtn" class="prompt-chip tool" title="任务进行中追加引导" hidden>↪ 引导</button>
             <input id="attachInput" type="file" accept="image/*" multiple hidden />
           </div>
           <div id="attachPreview" class="attach-preview"></div>
@@ -125,11 +120,11 @@
           </div>
           <div class="runtime-grid">
             <div>
-              <span class="metric-label">来源</span>
+              <span class="metric-label">连接</span>
               <strong id="dataSource">Mock</strong>
             </div>
             <div>
-              <span class="metric-label">线程</span>
+              <span class="metric-label">引擎</span>
               <strong id="currentThreadId">未选择</strong>
             </div>
             <div>
@@ -141,11 +136,14 @@
               <strong id="messageCount">0</strong>
             </div>
           </div>
-          <label class="field">
-            <span>后端地址</span>
-            <input id="backendUrl" placeholder="默认：本页地址" />
-          </label>
-          <button id="connectBtn" class="secondary-button">检查连接</button>
+          <details class="advanced">
+            <summary>高级</summary>
+            <label class="field">
+              <span>后端地址</span>
+              <input id="backendUrl" placeholder="默认：本页地址" />
+            </label>
+            <button id="connectBtn" class="secondary-button">检查连接</button>
+          </details>
         </section>
 
         <section class="runtime-card">

@@ -108,27 +108,11 @@ button {
   padding: 2px 4px 10px;
 }
 
-.window-dots {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  display: flex;
-  gap: 6px;
-}
-
-.window-dots span {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--line-strong);
-}
-
 .brand-mark {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
-  margin-top: 10px;
   border-radius: 9px;
   background: var(--text);
   color: white;
@@ -144,7 +128,6 @@ button {
 }
 
 .brand h1 {
-  margin-top: 10px;
   font-size: 16px;
   line-height: 1.2;
 }
@@ -421,9 +404,16 @@ button {
   color: var(--text);
 }
 
-/* View toggles + menu items that only matter on small screens (drawer mode). */
-#viewInspectorBtn,
-#viewChatBtn {
+/* Inspector toggle only matters on small screens (drawer mode). */
+#viewInspectorBtn {
+  display: none;
+}
+
+/* Conversation actions (rename/compact/archive) live in the ⋯ menu on every
+   viewport — the standalone topbar glyphs (✎ ⤡ 🗄) were cryptic clutter. */
+#renameThreadBtn,
+#compactThreadBtn,
+#archiveThreadBtn {
   display: none;
 }
 
@@ -1019,6 +1009,22 @@ button {
   font-weight: 750;
 }
 
+/* Prompt chips (left) insert text; tool chips (right) toggle features. The
+   divider + lighter tool styling makes the two kinds visibly distinct. */
+.chip-sep {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  background: var(--line-strong);
+  margin: 0 2px;
+}
+
+.prompt-chip.tool {
+  background: transparent;
+  border-style: dashed;
+}
+
 .composer-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 94px;
@@ -1423,6 +1429,32 @@ button {
 }
 
 .composer button,
+/* Collapsed "advanced" disclosure for power-user fields (backend URL etc.). */
+.advanced {
+  margin-top: 4px;
+}
+
+.advanced > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+  padding: 4px 2px;
+}
+
+.advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced > summary::before {
+  content: "▸ ";
+}
+
+.advanced[open] > summary::before {
+  content: "▾ ";
+}
+
 .secondary-button {
   border: 0;
   border-radius: 8px;
@@ -1683,12 +1715,9 @@ button {
     display: none;
   }
 
-  /* Thread ops + theme move into the ⋯ menu; hide standalone icon buttons. */
-  #renameThreadBtn,
-  #compactThreadBtn,
-  #archiveThreadBtn,
-  #themeBtn,
-  #viewChatBtn {
+  /* Theme also moves into the ⋯ menu on phones (rename/compact/archive are
+     already menu-only on every viewport). */
+  #themeBtn {
     display: none;
   }
 
