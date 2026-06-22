@@ -1429,35 +1429,31 @@ function renderEngineSwitch() {
   });
 }
 
-// Switch the working engine. With an in-progress conversation this forks to a
-// new conversation on the target engine, seeding the recent transcript; with no
-// (or an empty) conversation it just starts a fresh one on that engine.
+// Switch the working engine. For a web-created conversation this flips engine
+// in place (same conversation + history); the next turn silently carries the
+// context the target engine missed. With no conversation yet, just start one on
+// that engine. A Mac-app Codex thread (no logical wrapper) forks server-side.
 async function switchEngineTo(to) {
   const thread = currentThread();
   const project = currentProject();
   if (thread && thread.engine === to) return; // already on it
-  if (!thread || !thread.messages.length) {
+  if (!thread) {
     if (project) createBackendThread(project, to);
     return;
   }
   try {
-    const { thread: newThread, seedPrompt } = await apiFetch(
+    const { thread: updated, inPlace } = await apiFetch(
       `/api/threads/${encodeURIComponent(thread.id)}/switch-engine`,
       { method: "POST", body: JSON.stringify({ to, cwd: project?.path, settings: currentSettings() }) },
     );
-    state.threads.unshift(newThread);
-    state.selectedThreadId = newThread.id;
+    if (inPlace) {
+      replaceThread(updated); // same id — keep position + history
+    } else {
+      state.threads.unshift(updated); // forked off a Mac-app thread
+    }
+    state.selectedThreadId = updated.id;
     logEvent(`engine.switched: → ${to}`);
     render();
-    // Seed the composer with the prior context so the first turn carries it.
-    if (seedPrompt) {
-      promptInput.value = seedPrompt;
-      promptInput.dispatchEvent(new Event("input"));
-    }
-    showInfo(
-      "已切换引擎",
-      `<div class="info-item"><strong>已新建 ${to === "claude" ? "Claude" : "Codex"} 对话</strong><p>此前对话记录已填入输入框作为上下文，按需编辑后发送即可继续。</p></div>`,
-    );
   } catch (error) {
     showInfo("切换失败", `<div class="info-empty">${escapeHtml(error.message)}</div>`);
   }

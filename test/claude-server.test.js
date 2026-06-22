@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { claudeModel, buildReplayPrompt, normalizeClaudeConv } = require("../server");
+const { claudeModel, buildReplayPrompt, migrateConv, switchConvEngine } = require("../server");
 
 test("claudeModel forwards Claude ids and aliases, drops Codex ids", () => {
   assert.equal(claudeModel("claude-sonnet-4-6"), "claude-sonnet-4-6");
@@ -38,27 +38,53 @@ test("buildReplayPrompt keeps only the most recent turns", () => {
   assert.match(prompt, /msg29/); // keeps the latest
 });
 
-test("normalizeClaudeConv reports ready before the first turn, idle after", () => {
-  const fresh = normalizeClaudeConv(
-    { id: "claude-1", cwd: "/repo", title: "新对话", updatedAt: 0, nativeId: null, messages: [] },
-    false,
-  );
-  assert.equal(fresh.engine, "claude");
-  assert.equal(fresh.status.type, "ready");
-  assert.deepEqual(fresh.messages, []);
-
-  const live = normalizeClaudeConv(
-    { id: "claude-1", cwd: "/repo", title: "t", updatedAt: 0, nativeId: "sess", messages: [{ role: "user", text: "hi", images: [] }] },
-    true,
-  );
-  assert.equal(live.status.type, "idle");
-  assert.equal(live.messages.length, 1);
+test("migrateConv upgrades an old Claude-only record to the dual-engine shape", () => {
+  const conv = migrateConv({ id: "claude-1", engine: "claude", nativeId: "sess-abc", cwd: "/r", title: "t", messages: [{ role: "user", text: "hi" }] });
+  assert.equal(conv.engine, "claude");
+  assert.equal(conv.claudeSessionId, "sess-abc"); // nativeId → claudeSessionId
+  assert.equal(conv.codexThreadId, null);
+  assert.deepEqual(conv.engineCursor, {});
+  assert.equal(conv.messages.length, 1);
 });
 
-test("normalizeClaudeConv omits messages when includeMessages is false", () => {
-  const conv = normalizeClaudeConv(
-    { id: "c", cwd: "/r", title: "t", updatedAt: 0, nativeId: "s", messages: [{ role: "user", text: "hi" }] },
-    false,
-  );
+test("migrateConv defaults a new dual-engine record cleanly", () => {
+  const conv = migrateConv({ id: "conv-1", engine: "codex", codexThreadId: "t1", cwd: "/r" });
+  assert.equal(conv.codexThreadId, "t1");
+  assert.equal(conv.claudeSessionId, null);
   assert.deepEqual(conv.messages, []);
+});
+
+test("switchConvEngine flips engine, seeds full recent context on first switch", () => {
+  const conv = {
+    engine: "codex", codexThreadId: "t1", claudeSessionId: null,
+    messages: [{ role: "user", text: "建登录页" }, { role: "agent", text: "好的，已建好" }],
+    engineCursor: {}, pendingSeed: null,
+  };
+  switchConvEngine(conv, "claude");
+  assert.equal(conv.engine, "claude");
+  assert.equal(conv.engineCursor.codex, 2, "marks where we left codex");
+  assert.match(conv.pendingSeed, /建登录页/); // first switch carries the history
+});
+
+test("switchConvEngine on switch-back replays only the delta since it last ran", () => {
+  const conv = {
+    engine: "codex", codexThreadId: "t1", claudeSessionId: "s1",
+    messages: [
+      { role: "user", text: "A" }, { role: "agent", text: "a" }, // codex ran these
+      { role: "user", text: "B" }, { role: "agent", text: "b" }, // claude ran these
+    ],
+    engineCursor: { claude: 2 }, // claude last left after 2 messages
+    pendingSeed: null,
+  };
+  // currently on codex; switch to claude → claude should only need B/b (the delta).
+  switchConvEngine(conv, "claude");
+  assert.equal(conv.engine, "claude");
+  assert.match(conv.pendingSeed, /B/);
+  assert.ok(!conv.pendingSeed.includes("【我】A"), "old turns claude already saw are not replayed");
+});
+
+test("switchConvEngine to the same engine is a no-op (no seed)", () => {
+  const conv = { engine: "claude", messages: [{ role: "user", text: "x" }], engineCursor: {}, pendingSeed: null };
+  switchConvEngine(conv, "claude");
+  assert.equal(conv.pendingSeed, null);
 });

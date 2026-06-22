@@ -46,6 +46,10 @@ class CodexAppServer {
     this.approvals = new Map();
     // SSE subscribers for live turn streaming: { res, threadId }.
     this.streamSubs = new Set();
+    // native threadId → alias id (a conversation id). Lets a Codex turn that
+    // runs under a logical conversation deliver its stream to the client, which
+    // subscribed by conversation id, not the native Codex thread id.
+    this.streamAliases = new Map();
   }
 
   addStreamSubscriber(res, threadId) {
@@ -54,10 +58,19 @@ class CodexAppServer {
     return () => this.streamSubs.delete(sub);
   }
 
+  setStreamAlias(nativeId, aliasId) {
+    if (nativeId && aliasId) this.streamAliases.set(nativeId, aliasId);
+  }
+
+  clearStreamAlias(nativeId) {
+    this.streamAliases.delete(nativeId);
+  }
+
   emitStream(threadId, event) {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
+    const alias = this.streamAliases.get(threadId);
     for (const sub of this.streamSubs) {
-      if (!sub.threadId || sub.threadId === threadId) {
+      if (!sub.threadId || sub.threadId === threadId || sub.threadId === alias) {
         try {
           sub.res.write(payload);
         } catch {
@@ -481,18 +494,19 @@ class CodexAppServer {
 const codex = new CodexAppServer();
 const claude = new ClaudeEngine();
 
-// Claude conversations are created from the web (we don't parse ~/.claude
-// history). They live in memory and persist to claude-threads.json so they
-// survive restarts. Each is already in the normalized thread shape.
-const claudeStoreFile = path.join(root, "claude-threads.json");
+// Web-created conversations are logical records that can switch engines in
+// place: each holds both engines' native session ids + one unified transcript.
+// They persist to claude-threads.json (kept for back-compat) so they survive
+// restarts. Mac-app Codex threads (from thread/list) are NOT stored here.
+const convStoreFile = path.join(root, "claude-threads.json");
 
-class ClaudeStore {
+class ConvStore {
   constructor(file) {
     this.file = file;
     this.map = new Map();
     try {
       const arr = JSON.parse(fs.readFileSync(file, "utf8"));
-      for (const conv of arr) this.map.set(conv.id, conv);
+      for (const raw of arr) this.map.set(raw.id, migrateConv(raw));
     } catch {
       /* no store yet */
     }
@@ -509,16 +523,21 @@ class ClaudeStore {
   all() {
     return [...this.map.values()];
   }
-  create(cwd) {
-    const id = `claude-${crypto.randomBytes(8).toString("hex")}`;
+  create(cwd, engine = "codex") {
+    const id = `conv-${crypto.randomBytes(8).toString("hex")}`;
     const conv = {
       id,
-      engine: "claude",
-      nativeId: null, // claude sessionId, captured on the first turn
+      engine: engine === "claude" ? "claude" : "codex",
+      codexThreadId: null,
+      claudeSessionId: null,
       cwd: cwd || root,
       title: "新对话",
       updatedAt: Date.now() / 1000,
       messages: [],
+      lastTurn: null,
+      rateLimit: null,
+      pendingSeed: null,
+      engineCursor: {},
     };
     this.map.set(id, conv);
     this.save();
@@ -531,33 +550,117 @@ class ClaudeStore {
   }
 }
 
-const claudeStore = new ClaudeStore(claudeStoreFile);
-
-// A web thread id belongs to Claude iff the store knows it.
-function isClaude(id) {
-  return claudeStore.has(id);
+// Bring older / Claude-only records up to the dual-engine shape.
+function migrateConv(raw) {
+  return {
+    id: raw.id,
+    engine: raw.engine === "codex" ? "codex" : "claude",
+    codexThreadId: raw.codexThreadId ?? null,
+    // Older Claude records stored the session under `nativeId`.
+    claudeSessionId: raw.claudeSessionId ?? raw.nativeId ?? null,
+    cwd: raw.cwd || root,
+    title: raw.title || "新对话",
+    updatedAt: raw.updatedAt || Date.now() / 1000,
+    messages: Array.isArray(raw.messages) ? raw.messages : [],
+    lastTurn: raw.lastTurn || null,
+    rateLimit: raw.rateLimit || null,
+    pendingSeed: raw.pendingSeed ?? null,
+    engineCursor: raw.engineCursor && typeof raw.engineCursor === "object" ? raw.engineCursor : {},
+  };
 }
 
-function normalizeClaudeConv(conv, includeMessages) {
+const convStore = new ConvStore(convStoreFile);
+
+// A web thread id is store-managed (logical conversation) iff the store knows it.
+function isConv(id) {
+  return convStore.has(id);
+}
+
+// The native session id for a conversation's current engine (null until the
+// first turn on that engine lazily starts one).
+function nativeIdFor(conv) {
+  return conv.engine === "claude" ? conv.claudeSessionId : conv.codexThreadId;
+}
+
+function normalizeConv(conv, includeMessages) {
   return {
     id: conv.id,
-    engine: "claude",
+    engine: conv.engine,
     projectId: conv.cwd,
     title: conv.title || "新对话",
     updatedAt: formatTime(conv.updatedAt),
     path: conv.cwd,
-    // A fresh Claude conv has no session yet; surface that as "ready", not the
-    // Codex-flavored "notLoaded" which reads like an error in the UI.
-    status: { type: conv.nativeId ? "idle" : "ready" },
+    // No native session yet on this engine → "ready" (not the Codex-flavored
+    // "notLoaded", which reads like an error in the UI).
+    status: { type: nativeIdFor(conv) ? "idle" : "ready" },
     lastTurn: conv.lastTurn || null,
     rateLimit: conv.rateLimit || null,
     messages: includeMessages ? externalizeImages(structuredClone(conv.messages)) : [],
   };
 }
 
-// Run one Claude turn against a stored conversation, streaming via the shared
-// SSE hub (reuses codex.emitStream — subscribers are keyed by thread id).
-async function runClaudeTurn(conv, text, settings = {}) {
+// Run one turn on a store-managed conversation, routing to its current engine.
+// `text` is the user's real message (shown in the transcript); any pending
+// switch-context seed is prepended only in what's sent to the model.
+async function runConvTurn(conv, text, settings = {}) {
+  const seed = conv.pendingSeed;
+  conv.pendingSeed = null; // consumed by this turn regardless of outcome
+  const sentText = seed ? `${seed}\n\n${text}` : text;
+  if (conv.engine === "claude") return runClaudeConvTurn(conv, text, sentText, settings);
+  return runCodexConvTurn(conv, text, sentText, settings);
+}
+
+// Append the just-completed turn's agent/event items (not the user message,
+// which we record ourselves) into the unified transcript.
+function appendLastCodexTurn(conv, thread) {
+  const lastTurn = (thread.turns || []).at(-1);
+  if (!lastTurn) return "";
+  const items = extractMessages({ turns: [lastTurn] }).filter((m) => m.role !== "user");
+  for (const item of items) conv.messages.push(item);
+  const reply = items.filter((m) => m.role === "agent").at(-1);
+  return reply?.text || "";
+}
+
+async function runCodexConvTurn(conv, text, sentText, settings) {
+  // Lazily start the Codex thread the first time this conversation uses Codex.
+  if (!conv.codexThreadId) {
+    const started = await codex.startThread(conv.cwd, settings);
+    conv.codexThreadId = started.thread.id;
+    convStore.save();
+  }
+  const threadId = conv.codexThreadId;
+  codex.assertTurnAvailable(threadId);
+  conv.messages.push({ role: "user", text, images: [] });
+  conv.updatedAt = Date.now() / 1000;
+  convStore.save();
+  // Route Codex's native-threadId stream events to this conversation's SSE.
+  codex.setStreamAlias(threadId, conv.id);
+  codex.addEvent(`conv.codex.turn.start: ${conv.id}`, conv.id);
+  try {
+    await codex.resumeThread(threadId, conv.cwd, settings).catch((error) => {
+      codex.addEvent(`thread.resume.skipped: ${error.message}`, conv.id);
+    });
+    const turn = await codex.runTurn(threadId, sentText, conv.cwd, settings, []);
+    const result = await codex.readThread(threadId);
+    const reply = appendLastCodexTurn(conv, result.thread) || turn.text || "";
+    conv.title = conv.title === "新对话" && text ? text.slice(0, 24) : conv.title;
+    conv.lastTurn = { durationMs: null, costUsd: null };
+    conv.updatedAt = Date.now() / 1000;
+    convStore.save();
+    codex.addEvent(`conv.codex.turn.completed: ${conv.id}`, conv.id);
+    return { reply, partial: Boolean(turn.partial) };
+  } catch (error) {
+    codex.addEvent(`conv.codex.turn.failed: ${error.message}`, conv.id);
+    convStore.save();
+    throw error;
+  } finally {
+    codex.clearStreamAlias(threadId);
+  }
+}
+
+// Run a Claude turn on a stored conversation, streaming via the shared SSE hub
+// (reuses codex.emitStream — subscribers are keyed by conversation id).
+async function runClaudeConvTurn(conv, text, sentText, settings = {}) {
   // One turn at a time per conversation: two `claude --resume <id>` processes on
   // the same session would race-append to its rollout and corrupt it.
   if (claude.isActive(conv.id)) {
@@ -567,16 +670,16 @@ async function runClaudeTurn(conv, text, settings = {}) {
   }
   conv.messages.push({ role: "user", text, images: [] });
   conv.updatedAt = Date.now() / 1000;
-  claudeStore.save(); // persist the user message up-front so a failure isn't lost
+  convStore.save(); // persist the user message up-front so a failure isn't lost
   const onEvent = (evt) => codex.emitStream(conv.id, evt);
   codex.addEvent(`claude.turn.start: ${conv.id}`, conv.id);
   try {
     const turn = await claude.runTurn(
       conv.id,
-      text,
+      sentText,
       // Codex and Claude have disjoint model ids; only forward a model that is
       // actually a Claude model, otherwise let Claude pick its default.
-      { cwd: conv.cwd, sessionId: conv.nativeId, model: claudeModel(settings.model) },
+      { cwd: conv.cwd, sessionId: conv.claudeSessionId, model: claudeModel(settings.model) },
       onEvent,
     );
     for (const item of turn.items) conv.messages.push(item);
@@ -591,18 +694,18 @@ async function runClaudeTurn(conv, text, settings = {}) {
         turnStatus: turn.stopped ? "stopped" : "completed",
       });
     }
-    if (turn.sessionId) conv.nativeId = turn.sessionId;
+    if (turn.sessionId) conv.claudeSessionId = turn.sessionId;
     conv.title = conv.title === "新对话" && text ? text.slice(0, 24) : conv.title;
     conv.lastTurn = { durationMs: turn.durationMs || null, costUsd: turn.costUsd ?? null };
     if (turn.rateLimit) conv.rateLimit = turn.rateLimit;
     conv.updatedAt = Date.now() / 1000;
-    claudeStore.save();
+    convStore.save();
     const cost = turn.costUsd != null ? ` ($${turn.costUsd.toFixed(4)})` : "";
     codex.addEvent(`claude.turn.completed: ${conv.id}${cost}`, conv.id);
-    return turn;
+    return { reply: (turn.stopped ? turn.reply || "（已停止）" : turn.reply) || "", partial: false };
   } catch (error) {
     codex.addEvent(`claude.turn.failed: ${error.message}`, conv.id);
-    claudeStore.save(); // keep the user message; reload shows it for a retry
+    convStore.save(); // keep the user message; reload shows it for a retry
     throw error;
   }
 }
@@ -629,6 +732,26 @@ function buildReplayPrompt(messages = []) {
   }
   lines.push("\n（以上为历史上下文，下面请继续。）");
   return lines.join("\n").slice(0, 6000);
+}
+
+// Flip a stored conversation to another engine in place: same id + transcript,
+// just a different active engine. The next turn silently carries the context
+// the target engine is missing (only the delta since it last ran, so switching
+// back to a warm session stays mostly cache-hit). Pure mutation (no I/O) so it
+// stays unit-testable; the caller persists. Returns the updated conv.
+function switchConvEngine(conv, to) {
+  const target = to === "claude" ? "claude" : "codex";
+  if (conv.engine === target) return conv;
+  const from = conv.engine;
+  // Context the target engine hasn't seen: everything since it last ran (or the
+  // recent transcript on first switch — buildReplayPrompt caps to the tail).
+  const cursor = conv.engineCursor[target] ?? 0;
+  const delta = conv.messages.slice(cursor);
+  conv.engineCursor[from] = conv.messages.length; // mark where we left `from`
+  conv.engine = target;
+  conv.pendingSeed = delta.length ? buildReplayPrompt(delta) : null;
+  conv.updatedAt = Date.now() / 1000;
+  return conv;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -713,63 +836,55 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+$/) && req.method === "GET") {
       const threadId = decodeURIComponent(url.pathname.split("/")[3] || "");
-      if (isClaude(threadId)) {
-        return json(res, { thread: normalizeClaudeConv(claudeStore.get(threadId), true), events: codex.eventsFor(threadId) });
+      if (isConv(threadId)) {
+        return json(res, { thread: normalizeConv(convStore.get(threadId), true), events: codex.eventsFor(threadId) });
       }
       const result = await codex.readThread(threadId);
       return json(res, { thread: normalizeThread(result.thread, true), events: codex.eventsFor(threadId) });
     }
     if (url.pathname === "/api/threads" && req.method === "POST") {
+      // Every web-created conversation is a store-managed logical record (lazy
+      // native session) so it can switch engines in place later.
       const body = await readJson(req);
-      if (body.engine === "claude") {
-        const conv = claudeStore.create(body.cwd || root);
-        codex.addEvent(`claude.thread.started: ${conv.cwd}`, conv.id);
-        return json(res, { thread: normalizeClaudeConv(conv, false), events: codex.eventsFor(conv.id) });
-      }
-      const result = await codex.startThread(body.cwd || root, sanitizeSettings(body.settings));
-      const thread = normalizeThread(result.thread, false);
-      return json(res, { thread, events: codex.eventsFor(thread.id) });
+      const conv = convStore.create(body.cwd || root, body.engine === "claude" ? "claude" : "codex");
+      codex.addEvent(`conv.started: ${conv.engine} ${conv.cwd}`, conv.id);
+      return json(res, { thread: normalizeConv(conv, false), events: codex.eventsFor(conv.id) });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/switch-engine$/) && req.method === "POST") {
       const sourceId = decodeURIComponent(url.pathname.split("/")[3]);
       const body = await readJson(req);
       const to = body.to === "codex" ? "codex" : "claude";
-      // Gather the source transcript + title for context replay.
-      let sourceMessages;
-      let sourceTitle;
-      if (isClaude(sourceId)) {
-        const src = claudeStore.get(sourceId);
-        sourceMessages = src?.messages || [];
-        sourceTitle = src?.title;
-      } else {
-        const srcThread = (await codex.readThread(sourceId)).thread;
-        sourceMessages = extractMessages(srcThread);
-        sourceTitle = srcThread.name || trimPreview(srcThread.preview);
+      // Store-managed conversation → flip engine in place (same id + transcript).
+      if (isConv(sourceId)) {
+        const conv = convStore.get(sourceId);
+        const from = conv.engine;
+        switchConvEngine(conv, to);
+        convStore.save();
+        codex.addEvent(`engine.switched.inplace: ${from}→${conv.engine} (${conv.id})`, conv.id);
+        return json(res, { thread: normalizeConv(conv, false), inPlace: true });
       }
-      const cwd = body.cwd || (isClaude(sourceId) ? claudeStore.get(sourceId)?.cwd : null) || root;
-      const seedPrompt = buildReplayPrompt(sourceMessages);
-      if (to === "claude") {
-        const conv = claudeStore.create(cwd);
-        // Carry the title so the new thread doesn't get named after the replay text.
-        if (sourceTitle) {
-          conv.title = sourceTitle;
-          claudeStore.save();
-        }
-        codex.addEvent(`engine.switch: → claude (${conv.id})`, conv.id);
-        return json(res, { thread: normalizeClaudeConv(conv, false), seedPrompt });
-      }
-      const result = await codex.startThread(cwd, sanitizeSettings(body.settings));
-      const codexThread = normalizeThread(result.thread, false);
-      if (sourceTitle) {
-        await codex.renameThread(result.thread.id, sourceTitle).catch(() => {});
-        codexThread.title = sourceTitle;
-      }
-      codex.addEvent(`engine.switch: → codex (${result.thread.id})`);
-      return json(res, { thread: codexThread, seedPrompt });
+      // Mac-app Codex thread (no logical wrapper) → fork into a new conversation,
+      // seeding the recent transcript for the user to review/send.
+      const srcThread = (await codex.readThread(sourceId)).thread;
+      const sourceTitle = srcThread.name || trimPreview(srcThread.preview);
+      const cwd = body.cwd || root;
+      const seedPrompt = buildReplayPrompt(extractMessages(srcThread));
+      const conv = convStore.create(cwd, to);
+      if (sourceTitle) conv.title = sourceTitle;
+      conv.pendingSeed = seedPrompt;
+      convStore.save();
+      codex.addEvent(`engine.switch.fork: → ${to} (${conv.id})`, conv.id);
+      return json(res, { thread: normalizeConv(conv, false), inPlace: false });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/interrupt$/) && req.method === "POST") {
       const threadId = decodeURIComponent(url.pathname.split("/")[3]);
-      const ok = isClaude(threadId) ? claude.interrupt(threadId) : await codex.interruptTurn(threadId);
+      let ok = false;
+      if (isConv(threadId)) {
+        const conv = convStore.get(threadId);
+        ok = conv.engine === "claude" ? claude.interrupt(threadId) : await codex.interruptTurn(conv.codexThreadId);
+      } else {
+        ok = await codex.interruptTurn(threadId);
+      }
       return json(res, { ok });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/rename$/) && req.method === "POST") {
@@ -777,9 +892,12 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const name = String(body.name || "").trim();
       if (!name) return json(res, { error: "name required" }, 400);
-      if (isClaude(threadId)) {
-        claudeStore.get(threadId).title = name;
-        claudeStore.save();
+      if (isConv(threadId)) {
+        const conv = convStore.get(threadId);
+        conv.title = name;
+        convStore.save();
+        // A Claude conv has no server-side name to set; a Codex-backed one does.
+        if (conv.codexThreadId) await codex.renameThread(conv.codexThreadId, name).catch(() => {});
         return json(res, { ok: true, name });
       }
       await codex.renameThread(threadId, name);
@@ -787,26 +905,28 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/archive$/) && req.method === "POST") {
       const threadId = decodeURIComponent(url.pathname.split("/")[3]);
-      if (isClaude(threadId)) {
-        claudeStore.remove(threadId);
+      if (isConv(threadId)) {
+        const conv = convStore.get(threadId);
+        if (conv.codexThreadId) await codex.archiveThread(conv.codexThreadId).catch(() => {});
+        convStore.remove(threadId);
         return json(res, { ok: true });
       }
       await codex.archiveThread(threadId);
       return json(res, { ok: true });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/compact$/) && req.method === "POST") {
-      const threadId = decodeURIComponent(url.pathname.split("/")[3]);
+      const threadId = codexThreadIdOf(decodeURIComponent(url.pathname.split("/")[3]));
       await codex.compactThread(threadId);
       return json(res, { ok: true });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/fork$/) && req.method === "POST") {
-      const threadId = decodeURIComponent(url.pathname.split("/")[3]);
+      const threadId = codexThreadIdOf(decodeURIComponent(url.pathname.split("/")[3]));
       const body = await readJson(req);
       const result = await codex.forkThread(threadId, body.cwd || root);
       return json(res, { thread: normalizeThread(result.thread, false) });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/rollback$/) && req.method === "POST") {
-      const threadId = decodeURIComponent(url.pathname.split("/")[3]);
+      const threadId = codexThreadIdOf(decodeURIComponent(url.pathname.split("/")[3]));
       const body = await readJson(req);
       await codex.rollbackThread(threadId, Math.max(1, Number(body.numTurns) || 1));
       return json(res, { ok: true });
@@ -818,12 +938,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, { ok });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/review$/) && req.method === "POST") {
-      const threadId = decodeURIComponent(url.pathname.split("/")[3]);
+      const threadId = codexThreadIdOf(decodeURIComponent(url.pathname.split("/")[3]));
       await codex.startReview(threadId);
       return json(res, { ok: true });
     }
     if (url.pathname.match(/^\/api\/threads\/[^/]+\/summary$/) && req.method === "GET") {
-      const threadId = decodeURIComponent(url.pathname.split("/")[3]);
+      const threadId = codexThreadIdOf(decodeURIComponent(url.pathname.split("/")[3]));
       const result = await codex.conversationSummary(threadId);
       return json(res, { summary: result.summary || result });
     }
@@ -885,13 +1005,13 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const settings = sanitizeSettings(body.settings);
       const images = sanitizeImages(body.images);
-      if (isClaude(threadId)) {
-        const conv = claudeStore.get(threadId);
-        const turn = await runClaudeTurn(conv, body.text, settings);
+      if (isConv(threadId)) {
+        const conv = convStore.get(threadId);
+        const turn = await runConvTurn(conv, body.text, settings);
         return json(res, {
           reply: turn.reply,
-          partial: false,
-          thread: normalizeClaudeConv(conv, true),
+          partial: Boolean(turn.partial),
+          thread: normalizeConv(conv, true),
           events: codex.eventsFor(threadId),
         });
       }
@@ -924,7 +1044,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { CodexAppServer, claudeModel, buildReplayPrompt, normalizeClaudeConv };
+module.exports = { CodexAppServer, claudeModel, buildReplayPrompt, migrateConv, switchConvEngine };
 
 function formatNotification(message) {
   const params = message.params || {};
@@ -945,24 +1065,42 @@ function formatNotification(message) {
 }
 
 async function syncPayload() {
+  // Native Codex threads that a web conversation has adopted — hide them from
+  // the list so a switched conversation doesn't appear twice.
+  const adopted = new Set(convStore.all().map((c) => c.codexThreadId).filter(Boolean));
   let codexThreads = [];
   let source = "codex-app-server";
   try {
     const result = await codex.listThreads();
-    codexThreads = result.data.map((thread) => normalizeThread(thread, false));
+    codexThreads = result.data
+      .filter((thread) => !adopted.has(thread.id))
+      .map((thread) => normalizeThread(thread, false));
   } catch (error) {
-    // Codex may be unavailable; still surface Claude conversations.
+    // Codex may be unavailable; still surface stored conversations.
     codex.addEvent(`codex.list.failed: ${error.message}`);
     source = "claude-only";
   }
-  // Merge web-created Claude conversations, newest first.
-  const claudeThreads = claudeStore
+  // Merge web-created conversations (both engines), newest first.
+  const convThreads = convStore
     .all()
-    .map((conv) => normalizeClaudeConv(conv, false))
+    .map((conv) => normalizeConv(conv, false))
     .sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1));
-  const threads = [...claudeThreads, ...codexThreads];
+  const threads = [...convThreads, ...codexThreads];
   const projects = normalizeProjects(threads);
   return { source, projects, threads, events: codex.eventsFor(null) };
+}
+
+// Resolve a thread id to a Codex native thread id for Codex-only operations.
+// Store-managed conversations must have started their Codex session first.
+function codexThreadIdOf(id) {
+  if (!isConv(id)) return id;
+  const conv = convStore.get(id);
+  if (conv.engine !== "codex" || !conv.codexThreadId) {
+    const error = new Error("请先在该对话发一条消息以建立 Codex 会话");
+    error.statusCode = 409;
+    throw error;
+  }
+  return conv.codexThreadId;
 }
 
 function normalizeProjects(threads) {
