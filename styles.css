@@ -5,18 +5,18 @@
   --surface: #ffffff;
   --surface-soft: #f2f5f7;
   --surface-hover: #e9eef2;
-  --line: #d7dde3;
-  --line-strong: #c5ced7;
+  --line: #e4e8ed;
+  --line-strong: #d2d9e0;
   --text: #17202a;
-  --muted: #657181;
-  --subtle: #8a94a3;
-  --accent: #16806f;
-  --accent-strong: #0d5d52;
-  --accent-soft: #e2f4f0;
+  --muted: #687585;
+  --subtle: #98a2b0;
+  --accent: #0f7d6b;
+  --accent-strong: #0a5a4f;
+  --accent-soft: #e6f5f1;
   --blue-soft: #eaf5ff;
   --warn: #a15c10;
   --warn-soft: #fff4e5;
-  --shadow: 0 14px 40px rgba(23, 32, 42, 0.08);
+  --shadow: 0 10px 34px rgba(23, 32, 42, 0.07);
   --content-width: 880px;
 }
 
@@ -27,13 +27,13 @@
   --surface: #161e21;
   --surface-soft: #1c262a;
   --surface-hover: #233036;
-  --line: #2a363b;
-  --line-strong: #38474d;
+  --line: #283238;
+  --line-strong: #3a484f;
   --text: #e7edf0;
   --muted: #9aa7ad;
   --subtle: #74838a;
-  --accent: #2bb597;
-  --accent-strong: #56d3b6;
+  --accent: #2dbd9e;
+  --accent-strong: #5cd9bc;
   --accent-soft: #15302b;
   --blue-soft: #142733;
   --warn: #e0a44a;
@@ -72,6 +72,27 @@ textarea {
 button {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* One consistent stroke-based icon set (inline SVG sprite, themed via
+   currentColor) replaces the old mix of emoji + ad-hoc unicode glyphs. */
+.ico {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Theme button carries both glyphs; the active scheme shows the *other* one. */
+.ico-sun { display: none; }
+:root[data-theme="dark"] .ico-moon { display: none; }
+:root[data-theme="dark"] .ico-sun { display: block; }
+
+/* Fullscreen image overlay close sits in a 40px target — give it a larger glyph. */
+.image-viewer-close .ico { width: 22px; height: 22px; }
 
 .app-shell {
   display: grid;
@@ -176,10 +197,9 @@ button {
   margin: 0 0 7px;
   padding: 0 2px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .section-actions {
@@ -939,14 +959,14 @@ button {
   position: absolute;
   top: 18px;
   right: 22px;
+  display: grid;
+  place-items: center;
   width: 40px;
   height: 40px;
   border: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.16);
   color: #fff;
-  font-size: 24px;
-  line-height: 1;
   cursor: pointer;
 }
 
@@ -998,15 +1018,24 @@ button {
 }
 
 .prompt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
   color: var(--muted);
   cursor: pointer;
-  padding: 4px 10px;
+  padding: 4px 11px;
   font-size: 12px;
   font-weight: 750;
+}
+
+/* Chip glyphs are a hair smaller than chrome icons so the label leads. */
+.prompt-chip .ico {
+  width: 15px;
+  height: 15px;
 }
 
 /* Prompt chips (left) insert text; tool chips (right) toggle features. The
@@ -1295,9 +1324,10 @@ button {
 }
 
 .info-head button {
+  display: grid;
+  place-items: center;
   border: 0;
   background: transparent;
-  font-size: 22px;
   cursor: pointer;
   color: var(--muted);
 }
@@ -1481,9 +1511,9 @@ button {
 
 .runtime-card {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--surface);
-  padding: 11px;
+  padding: 12px;
 }
 
 .runtime-grid {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Codex Mobile Web Demo</title>
     <link rel="manifest" href="./manifest.webmanifest" />
-    <meta name="theme-color" content="#16806f" />
+    <meta name="theme-color" content="#0f7d6b" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="./icon-192.png" />
@@ -13,6 +13,72 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <!-- Inline icon sprite: one stroke-based set referenced via <use>, themed
+         through currentColor. Replaces the old emoji/unicode glyph mix. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="i-refresh" viewBox="0 0 24 24">
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" />
+        </symbol>
+        <symbol id="i-rotate" viewBox="0 0 24 24">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />
+        </symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24">
+          <path d="M12 5v14" /><path d="M5 12h14" />
+        </symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24">
+          <path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" />
+        </symbol>
+        <symbol id="i-pencil" viewBox="0 0 24 24">
+          <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </symbol>
+        <symbol id="i-compress" viewBox="0 0 24 24">
+          <path d="m7 20 5-5 5 5" /><path d="m7 4 5 5 5-5" />
+        </symbol>
+        <symbol id="i-archive" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="5" rx="1" />
+          <path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9" /><path d="M10 13h4" />
+        </symbol>
+        <symbol id="i-more" viewBox="0 0 24 24">
+          <path d="M5 12h.01" /><path d="M12 12h.01" /><path d="M19 12h.01" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24">
+          <path d="M12 3a6.4 6.4 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" />
+          <path d="M4.9 4.9l1.4 1.4" /><path d="M17.7 17.7l1.4 1.4" />
+          <path d="M2 12h2" /><path d="M20 12h2" />
+          <path d="M4.9 19.1l1.4-1.4" /><path d="M17.7 6.3l1.4-1.4" />
+        </symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24">
+          <path d="M21 4h-7" /><path d="M10 4H3" /><path d="M21 12h-9" /><path d="M8 12H3" />
+          <path d="M21 20h-5" /><path d="M12 20H3" />
+          <path d="M10 2v4" /><path d="M8 10v4" /><path d="M16 18v4" />
+        </symbol>
+        <symbol id="i-x" viewBox="0 0 24 24">
+          <path d="M18 6 6 18" /><path d="M6 6l12 12" />
+        </symbol>
+        <symbol id="i-image" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <circle cx="9" cy="9" r="1.8" />
+          <path d="m21 15-3.6-3.6a2 2 0 0 0-2.8 0L6 21" />
+        </symbol>
+        <symbol id="i-mic" viewBox="0 0 24 24">
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v3" />
+        </symbol>
+        <symbol id="i-volume" viewBox="0 0 24 24">
+          <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+          <path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M19 5a10 10 0 0 1 0 14" />
+        </symbol>
+        <symbol id="i-steer" viewBox="0 0 24 24">
+          <path d="m15 10 5 5-5 5" /><path d="M4 4v7a4 4 0 0 0 4 4h12" />
+        </symbol>
+      </defs>
+    </svg>
+
     <main class="app-shell">
       <aside class="sidebar" aria-label="项目和对话">
         <div class="brand">
@@ -26,7 +92,9 @@
         <section class="rail-section compact">
           <div class="section-title">
             <span>项目</span>
-            <button id="syncBtn" class="icon-button" title="同步" aria-label="同步">↻</button>
+            <button id="syncBtn" class="icon-button" title="同步" aria-label="同步">
+              <svg class="ico"><use href="#i-refresh" /></svg>
+            </button>
           </div>
           <input id="projectSearch" class="search-input" placeholder="搜索项目" />
           <div id="projectList" class="list"></div>
@@ -36,8 +104,12 @@
           <div class="section-title">
             <span>对话</span>
             <div class="section-actions">
-              <button id="reloadThreadBtn" class="icon-button" title="重载当前对话" aria-label="重载当前对话">⟳</button>
-              <button id="newThreadBtn" class="icon-button" title="新对话" aria-label="新对话">+</button>
+              <button id="reloadThreadBtn" class="icon-button" title="重载当前对话" aria-label="重载当前对话">
+                <svg class="ico"><use href="#i-rotate" /></svg>
+              </button>
+              <button id="newThreadBtn" class="icon-button" title="新对话" aria-label="新对话">
+                <svg class="ico"><use href="#i-plus" /></svg>
+              </button>
             </div>
           </div>
           <input id="threadSearch" class="search-input" placeholder="搜索对话" />
@@ -47,18 +119,28 @@
 
       <section class="workspace">
         <header class="topbar">
-          <button id="drawerBtn" class="drawer-button" type="button" title="项目与对话" aria-label="打开项目与对话">☰</button>
+          <button id="drawerBtn" class="drawer-button" type="button" title="项目与对话" aria-label="打开项目与对话">
+            <svg class="ico"><use href="#i-menu" /></svg>
+          </button>
           <div>
             <p id="currentProjectPath" class="eyebrow"></p>
             <h2 id="threadTitle">选择一个对话</h2>
             <div id="threadMeta" class="thread-meta"></div>
           </div>
           <div class="topbar-actions">
-            <button id="renameThreadBtn" class="toolbar-button" type="button" title="重命名对话" aria-label="重命名对话">✎</button>
-            <button id="compactThreadBtn" class="toolbar-button" type="button" title="压缩上下文" aria-label="压缩上下文">⤡</button>
-            <button id="archiveThreadBtn" class="toolbar-button" type="button" title="归档对话" aria-label="归档对话">🗄</button>
+            <button id="renameThreadBtn" class="toolbar-button" type="button" title="重命名对话" aria-label="重命名对话">
+              <svg class="ico"><use href="#i-pencil" /></svg>
+            </button>
+            <button id="compactThreadBtn" class="toolbar-button" type="button" title="压缩上下文" aria-label="压缩上下文">
+              <svg class="ico"><use href="#i-compress" /></svg>
+            </button>
+            <button id="archiveThreadBtn" class="toolbar-button" type="button" title="归档对话" aria-label="归档对话">
+              <svg class="ico"><use href="#i-archive" /></svg>
+            </button>
             <div class="more-wrap">
-              <button id="moreBtn" class="toolbar-button" type="button" title="更多" aria-label="更多">⋯</button>
+              <button id="moreBtn" class="toolbar-button" type="button" title="更多" aria-label="更多">
+                <svg class="ico"><use href="#i-more" /></svg>
+              </button>
               <div id="moreMenu" class="more-menu" hidden>
                 <button type="button" data-action="rename">重命名对话</button>
                 <button type="button" class="codex-only" data-action="compact">压缩上下文</button>
@@ -74,8 +156,13 @@
                 <button type="button" class="codex-only" data-action="plugins">查看插件</button>
               </div>
             </div>
-            <button id="themeBtn" class="toolbar-button" type="button" title="切换主题" aria-label="切换主题">🌙</button>
-            <button id="viewInspectorBtn" class="toolbar-button" type="button" title="运行与设置面板" aria-label="运行与设置面板">⚙</button>
+            <button id="themeBtn" class="toolbar-button" type="button" title="切换主题" aria-label="切换主题">
+              <svg class="ico ico-moon"><use href="#i-moon" /></svg>
+              <svg class="ico ico-sun"><use href="#i-sun" /></svg>
+            </button>
+            <button id="viewInspectorBtn" class="toolbar-button" type="button" title="运行与设置面板" aria-label="运行与设置面板">
+              <svg class="ico"><use href="#i-settings" /></svg>
+            </button>
             <div class="status-pill" id="connectionStatus">Mock 模式</div>
           </div>
         </header>
@@ -92,10 +179,18 @@
             <button type="button" class="prompt-chip" data-prompt="阅读当前线程上下文，给我下一步最小可执行建议">下一步</button>
             <button type="button" class="prompt-chip" data-prompt="只 review 当前改动，按严重程度列出问题">Review</button>
             <span class="chip-sep" aria-hidden="true"></span>
-            <button type="button" id="attachBtn" class="prompt-chip tool" title="添加图片">📎 图片</button>
-            <button type="button" id="micBtn" class="prompt-chip tool" title="语音输入">🎤 语音</button>
-            <button type="button" id="ttsBtn" class="prompt-chip tool" title="朗读 Codex 回复" aria-pressed="false">🔈 朗读</button>
-            <button type="button" id="steerBtn" class="prompt-chip tool" title="任务进行中追加引导" hidden>↪ 引导</button>
+            <button type="button" id="attachBtn" class="prompt-chip tool" title="添加图片">
+              <svg class="ico"><use href="#i-image" /></svg><span class="lbl">图片</span>
+            </button>
+            <button type="button" id="micBtn" class="prompt-chip tool" title="语音输入">
+              <svg class="ico"><use href="#i-mic" /></svg><span class="lbl">语音</span>
+            </button>
+            <button type="button" id="ttsBtn" class="prompt-chip tool" title="朗读 Codex 回复" aria-pressed="false">
+              <svg class="ico"><use href="#i-volume" /></svg><span class="lbl">朗读</span>
+            </button>
+            <button type="button" id="steerBtn" class="prompt-chip tool" title="任务进行中追加引导" hidden>
+              <svg class="ico"><use href="#i-steer" /></svg><span class="lbl">引导</span>
+            </button>
             <input id="attachInput" type="file" accept="image/*" multiple hidden />
           </div>
           <div id="attachPreview" class="attach-preview"></div>
@@ -191,8 +286,12 @@
           <div class="section-title">
             <span>事件流</span>
             <div class="section-actions">
-              <button id="refreshEventsBtn" class="icon-button" title="刷新事件" aria-label="刷新事件">↻</button>
-              <button id="clearEventsBtn" class="icon-button" title="清空事件" aria-label="清空事件">×</button>
+              <button id="refreshEventsBtn" class="icon-button" title="刷新事件" aria-label="刷新事件">
+                <svg class="ico"><use href="#i-refresh" /></svg>
+              </button>
+              <button id="clearEventsBtn" class="icon-button" title="清空事件" aria-label="清空事件">
+                <svg class="ico"><use href="#i-x" /></svg>
+              </button>
             </div>
           </div>
           <div id="eventList" class="events"></div>
@@ -216,14 +315,18 @@
       <div class="info-card">
         <div class="info-head">
           <strong id="infoTitle"></strong>
-          <button id="infoClose" type="button" aria-label="关闭">×</button>
+          <button id="infoClose" type="button" aria-label="关闭">
+            <svg class="ico"><use href="#i-x" /></svg>
+          </button>
         </div>
         <div id="infoBody" class="info-body"></div>
       </div>
     </div>
 
     <div id="imageViewer" class="image-viewer" hidden>
-      <button id="imageViewerClose" class="image-viewer-close" aria-label="关闭">×</button>
+      <button id="imageViewerClose" class="image-viewer-close" aria-label="关闭">
+        <svg class="ico"><use href="#i-x" /></svg>
+      </button>
       <img id="imageViewerImg" alt="预览大图" />
     </div>
 

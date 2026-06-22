@@ -333,7 +333,7 @@ const themeStorageKey = "codex-web-demo-theme";
 const themeMeta = document.querySelector('meta[name="theme-color"]');
 function applyTheme(theme, { save = true } = {}) {
   document.documentElement.setAttribute("data-theme", theme);
-  document.querySelector("#themeBtn").textContent = theme === "dark" ? "☀️" : "🌙";
+  // The sun/moon glyphs swap via CSS off [data-theme]; nothing to set here.
   // Keep the Android address bar / task switcher in sync with the topbar.
   themeMeta.content = theme === "dark" ? "#161e21" : "#ffffff";
   if (save) localStorage.setItem(themeStorageKey, theme);
@@ -866,7 +866,7 @@ micBtn.addEventListener("click", () => {
   recognition.interimResults = true;
   recognition.continuous = false;
   micBtn.classList.add("recording");
-  micBtn.textContent = "🎙️ 听写中";
+  micBtn.querySelector(".lbl").textContent = "听写中";
   let finalText = "";
   recognition.onresult = (event) => {
     let interim = "";
@@ -880,7 +880,7 @@ micBtn.addEventListener("click", () => {
   recognition.onerror = () => logEvent("voice.error");
   recognition.onend = () => {
     micBtn.classList.remove("recording");
-    micBtn.textContent = "🎤 语音";
+    micBtn.querySelector(".lbl").textContent = "语音";
     recognition = null;
     promptInput.focus();
   };
@@ -1597,7 +1597,16 @@ async function syncFromBackend() {
     setConnStatus("同步中");
     const payload = await apiFetch("/api/sync");
     state.projects = payload.projects;
-    state.threads = payload.threads;
+    // /api/sync omits messages for speed; keep whatever we already have (from
+    // localStorage or a prior load) so the open conversation doesn't blank out
+    // on refresh/sync. Messages refresh when a thread is opened/reloaded.
+    const prevMessages = new Map(state.threads.map((t) => [t.id, t.messages]));
+    state.threads = payload.threads.map((t) => {
+      if ((!t.messages || !t.messages.length) && prevMessages.get(t.id)?.length) {
+        return { ...t, messages: prevMessages.get(t.id) };
+      }
+      return t;
+    });
     ui.dataSource = payload.source || "Codex";
     mergeEvents(payload.events);
     state.selectedProjectId = keepSelected(
@@ -1614,6 +1623,12 @@ async function syncFromBackend() {
     logEvent(`sync.loaded: ${state.threads.length} threads`);
     loadModels();
     loadAccount();
+    // Pull the freshest transcript for the open conversation (sync sent none).
+    if (state.selectedThreadId) {
+      loadThread(state.selectedThreadId)
+        .then(render)
+        .catch((error) => logEvent(`thread.autoload.failed: ${error.message}`));
+    }
   } catch (error) {
     setConnStatus("Mock 模式");
     ui.dataSource = "Mock";
